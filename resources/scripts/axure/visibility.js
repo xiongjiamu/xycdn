@@ -36,8 +36,8 @@
         //and doesn't go hidden on the second out if we do not set display here.
         if(visible) {
             //hmmm i will need to remove the class here cause display will not be overwriten by set to ''
-            if($(element).hasClass('ax_default_hidden')) $(element).removeClass('ax_default_hidden');
-            if($(element).hasClass('ax_default_unplaced')) $(element).removeClass('ax_default_unplaced');
+            if($(element).hasClass(HIDDEN_CLASS)) $(element).removeClass(HIDDEN_CLASS);
+            if($(element).hasClass(UNPLACED_CLASS)) $(element).removeClass(UNPLACED_CLASS);
             element.style.display = '';
             element.style.visibility = 'visible';
         } else {
@@ -46,9 +46,11 @@
         }
     };
 
-    var _setWidgetVisibility = $ax.visibility.SetWidgetVisibility = function(elementId, options) {
+    var _setWidgetVisibility = $ax.visibility.SetWidgetVisibility = function (elementId, options) {
+        var visible = $ax.visibility.IsIdVisible(elementId);
         // If limboed, just fire the next action then leave.
-        if(_limboIds[elementId]) {
+        if(visible == options.value || _limboIds[elementId]) {
+            if(!_limboIds[elementId]) options.onComplete && options.onComplete();
             $ax.action.fireAnimationFromQueue(elementId, $ax.action.queueTypes.fade);
             return;
         }
@@ -287,7 +289,8 @@
                 if(preserveScroll) {
                     visibleWrapped.css('opacity', 0);
                     visibleWrapped.css('visibility', 'visible');
-                    visibleWrapped.css('display', '');
+                    visibleWrapped.css('display', 'block');
+                    //was hoping we could just use fadein here, but need to set display before set scroll position
                     _tryResumeScrollForDP(childId);
                     visibleWrapped.animate({ opacity: 1 }, {
                         duration: options.duration,
@@ -438,6 +441,8 @@
                 });
             }
         } else {
+            // Because the move is gonna fire on annotation and ref too, need to update complete total
+            completeTotal = $addAll(visibleWrapped, childId).length;
             if(options.value) {
                 _slideStateIn(childId, childId, options, size, false, onComplete, visibleWrapped, preserveScroll);
             } else {
@@ -606,6 +611,7 @@
         if(resized) $ax.event.raiseSyntheticEvent(id, 'onResize');
     };
 
+    var containedFixed = {};
     var _pushContainer = _visibility.pushContainer = function(id, panel) {
         var count = containerCount[id];
         if(count) containerCount[id] = count + 1;
@@ -643,10 +649,27 @@
                     container.append(childContainer);
                 }
             } else {
+                var focus = _getCurrFocus();
+
                 // Layer needs to fix top left
                 var childIds = $ax('#' + id).getChildren()[0].children;
                 for(var i = 0; i < childIds.length; i++) {
                     var childId = childIds[i];
+                    var childObj = $jobj(childId);
+                    var fixedInfo = $ax.dynamicPanelManager.getFixedInfo(childId);
+                    if(fixedInfo.fixed) {
+                        var axObj = $ax('#' + childId);
+                        var left = axObj.left();
+                        var top = axObj.top();
+                        containedFixed[childId] = { left: left, top: top, fixed: fixedInfo };
+                        childObj.css('left', left);
+                        childObj.css('top', top);
+                        childObj.css('margin-left', 0);
+                        childObj.css('margin-top', 0);
+                        childObj.css('right', 'auto');
+                        childObj.css('bottom', 'auto');
+                        childObj.css('position', 'absolute');
+                    }
                     var cssChange = {
                         left: '-=' + css.left,
                         top: '-=' + css.top
@@ -655,7 +678,6 @@
                         _pushContainer(childId, false);
                         $ax.visibility.applyWidgetContainer(childId, true).css(cssChange);
                     } else {
-                        var jobj = $jobj(childId);
                         //if ($ax.public.fn.isCompoundVectorHtml(jobj[0])) {
                         //    var grandChildren = jobj[0].children;
                         //    //while (grandChildren.length > 0 && grandChildren[0].id.indexOf('container') >= 0) grandChildren = grandChildren[0].children;
@@ -665,11 +687,14 @@
                         //        if (grandChildId.indexOf(childId + 'p') >= 0 || grandChildId.indexOf('_container') >= 0) $jobj(grandChildId).css(cssChange);
                         //    }
                         //} else 
-                            jobj.css(cssChange);
+                        // Need to include ann and ref in move.
+                        childObj = $addAll(childObj, childId);
+                        childObj.css(cssChange);
                     }
 
-                    container.append($jobj(childId));
+                    container.append(childObj);
                 }
+                _setCurrFocus(focus);
             }
         }
     };
@@ -683,8 +708,17 @@
 
         var jobj = $jobj(id);
         var container = $ax.visibility.applyWidgetContainer(id, true);
+
+        // If layer is at bottom or right of page, unwrapping could change scroll by temporarily reducting page size.
+        //  To avoid this, we let container persist on page, with the size it is at this point, and don't remove container completely
+        //  until the children are back to their proper locations.
+        var size = $ax('#' + id);
+        container.css('width', size.width());
+        container.css('height', size.height());
+        var focus = _getCurrFocus();
         jobj.append(container.children());
-        container.remove();
+        _setCurrFocus(focus);
+        $('body').append(container);
 
         // Layer doesn't have children containers to clean up
         if(panel) {
@@ -709,7 +743,7 @@
                     $ax.visibility.applyWidgetContainer(childId, true).css(cssChange);
                     _popContainer(childId, false);
                 } else {
-                    var jobj = $jobj(childId);
+                    var childObj = $jobj(childId);
                 //    if ($ax.public.fn.isCompoundVectorHtml(jobj[0])) {
                 //        var grandChildren = jobj[0].children;
                 //        //while (grandChildren.length > 0 && grandChildren[0].id.indexOf('container') >= 0) grandChildren = grandChildren[0].children;
@@ -718,11 +752,55 @@
                 //            if (grandChildId.indexOf(childId + 'p') >= 0 || grandChildId.indexOf('_container') >= 0) $jobj(grandChildId).css(cssChange);
                 //        }
                 //} else
-                        jobj.css(cssChange);
+                    var allObjs = $addAll(childObj, childId); // Just include other objects for initial css. Fixed panels need to be dealt with separately.
+                    allObjs.css(cssChange);
+
+                    var fixedInfo = containedFixed[childId];
+                    if(fixedInfo) {
+                        delete containedFixed[childId];
+
+                        childObj.css('position', 'fixed');
+                        var deltaX = $ax.getNumFromPx(childObj.css('left')) - fixedInfo.left;
+                        var deltaY = $ax.getNumFromPx(childObj.css('top')) - fixedInfo.top;
+
+                        fixedInfo = fixedInfo.fixed;
+                        if(fixedInfo.horizontal == 'left') childObj.css('left', fixedInfo.x + deltaX);
+                        else if(fixedInfo.horizontal == 'center') {
+                            childObj.css('left', '50%');
+                            childObj.css('margin-left', fixedInfo.x + deltaX);
+                        } else {
+                            childObj.css('left', 'auto');
+                            childObj.css('right', fixedInfo.x - deltaX);
+                        }
+
+                        if(fixedInfo.vertical == 'top') childObj.css('top', fixedInfo.y + deltaY);
+                        else if(fixedInfo.vertical == 'middle') {
+                            childObj.css('top', '50%');
+                            childObj.css('margin-top', fixedInfo.y + deltaY);
+                        } else {
+                            childObj.css('top', 'auto');
+                            childObj.css('bottom', fixedInfo.y - deltaY);
+                        }
+
+                        $ax.dynamicPanelManager.updatePanelPercentWidth(childId);
+                        $ax.dynamicPanelManager.updatePanelContentPercentWidth(childId);
+
+                    }
                 }
             }
         }
+        container.remove();
     };
+
+    var _getCurrFocus = function() {
+        return window.lastFocusedClickable && window.lastFocusedClickable.id;
+    }
+
+    var _setCurrFocus = function(id) {
+        if(id) {
+            $jobj(id).focus();
+        }
+    }
 
     //use this to save & restore DP's scroll position when show/hide
     //key => dp's id (not state's id, because it seems we can change state while hiding)
@@ -774,7 +852,7 @@
         return container;
     };
 
-    var CONTAINER_SUFFIX = '_container';
+    var CONTAINER_SUFFIX = _visibility.CONTAINER_SUFFIX = '_container';
     var CONTAINER_INNER = CONTAINER_SUFFIX + '_inner';
     _visibility.getWidgetFromContainer = function(id) {
         var containerIndex = id.indexOf(CONTAINER_SUFFIX);
@@ -914,7 +992,7 @@
         $jobj(stateid).appendTo(panel);
         //when bring a panel to front, it will be focused, and the previous front panel should fire blur event if it's lastFocusedClickableSelector
         //ie(currently 11) and firefox(currently 34) doesn't fire blur event, this is the hack to fire it manually
-        if((IE || FIREFOX) && window.lastFocusedClickable && window.lastFocusedControl == window.lastFocusedClickable.id) {
+        if((IE || FIREFOX) && window.lastFocusedClickable && $ax.event.getFocusableWidgetOrChildId(window.lastFocusedControl) == window.lastFocusedClickable.id) {
             $(window.lastFocusedClickable).triggerHandler('blur');
         }
     };
@@ -980,7 +1058,7 @@
     $ax.visibility.resetLimboAndHiddenToDefaults = function (query) {
         if(!query) query = $ax('*');
         _clearLimboAndHidden();
-        _addLimboAndHiddenIds(_defaultLimbo, _defaultHidden, query, true);
+        _addLimboAndHiddenIds(_defaultLimbo, _defaultHidden, query);
     };
 
     $ax.visibility.isScriptIdLimbo = function(scriptId) {
@@ -995,15 +1073,31 @@
 
     $ax.visibility.initialize = function() {
         // initialize initial visible states
-        $(".ax_default_hidden").each(function (index, diagramObject) {
+        $('.' + HIDDEN_CLASS).each(function (index, diagramObject) {
             _defaultHidden[$ax.repeater.getScriptIdFromElementId(diagramObject.id)] = true;
         });
 
-        $(".ax_default_unplaced").each(function (index, diagramObject) {
+        $('.' + UNPLACED_CLASS).each(function (index, diagramObject) {
             _defaultLimbo[$ax.repeater.getScriptIdFromElementId(diagramObject.id)] = true;
         });
 
         _addLimboAndHiddenIds(_defaultLimbo, _defaultHidden, $ax('*'), true);
     };
+
+    _visibility.initRepeater = function(repeaterId) {
+        var html = $('<div></div>');
+        html.append($jobj(repeaterId + '_script').html());
+
+        html.find('.' + HIDDEN_CLASS).each(function (index, element) {
+            _defaultHidden[$ax.repeater.getScriptIdFromElementId(element.id)] = true;
+        });
+
+        html.find('.' + UNPLACED_CLASS).each(function (index, element) {
+            _defaultLimbo[$ax.repeater.getScriptIdFromElementId(element.id)] = true;
+        });
+    }
+
+    var HIDDEN_CLASS = _visibility.HIDDEN_CLASS = 'ax_default_hidden';
+    var UNPLACED_CLASS = _visibility.UNPLACED_CLASS = 'ax_default_unplaced';
 
 });

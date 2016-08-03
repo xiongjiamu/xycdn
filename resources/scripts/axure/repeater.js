@@ -32,7 +32,8 @@ $axure.internal(function($ax) {
 
             _setRepeaterDataSet(repeaterId, repeaterId);
             var initialItemIds = obj.repeaterPropMap.itemIds;
-            for(var i = 0; i < initialItemIds.length; i++) $ax.addItemIdToRepeater(initialItemIds[i], repeaterId);
+            for (var i = 0; i < initialItemIds.length; i++) $ax.addItemIdToRepeater(initialItemIds[i], repeaterId);
+            $ax.visibility.initRepeater(repeaterId);
         });
     };
     _repeaterManager.load = _loadRepeaters;
@@ -170,6 +171,8 @@ $axure.internal(function($ax) {
 
             var div = $('<div></div>');
             div.html(html);
+            div.find('.' + $ax.visibility.HIDDEN_CLASS).removeClass($ax.visibility.HIDDEN_CLASS);
+            div.find('.' + $ax.visibility.UNPLACED_CLASS).removeClass($ax.visibility.UNPLACED_CLASS);
 
             var paddingTop = _getAdaptiveProp(propMap, 'paddingTop', viewId);
             var paddingLeft = _getAdaptiveProp(propMap, 'paddingLeft', viewId);
@@ -261,16 +264,13 @@ $axure.internal(function($ax) {
             repeaterSize.height += borderWidth * 2;
             $jobj(repeaterId).css(repeaterSize);
 
+            // TODO: Should be able to combine this with initialization done in pregen items. Just need to have ids and template ids be the same.
             for(var i = 0; i < ids.length; i++) $ax.initializeObjectEvents($ax('#' + ids[i]), true);
         }
 
-        var query = $ax(function(diagramObject, elementId) {
-            // All objects with the repeater as their parent, except the repeater itself.
-            var scriptId = _getScriptIdFromElementId(elementId);
-            return $ax.getParentRepeaterFromScriptId(scriptId) == repeaterId && scriptId != repeaterId;
-        });
+        var query = _getItemQuery(repeaterId);
         if(viewId) $ax.adaptive.applyView(viewId, query);
-        else $ax.visibility.resetLimboAndHiddenToDefaults(query);
+        else $ax.visibility.resetLimboAndHiddenToDefaults(_getItemQuery(repeaterId, preevalMap));
 //        else {
 //            var limbo = {};
 //            var hidden = {};
@@ -328,6 +328,22 @@ $axure.internal(function($ax) {
         $ax.action.refreshEnd();
     };
     _repeaterManager.refreshRepeater = _refreshRepeater;
+
+    var _getItemQuery = function(repeaterId, preevalMap) {
+        var query = $ax(function (diagramObject, elementId) {
+            // Also need to check that this in not preeval
+            if(preevalMap) {
+                var itemId = _getItemIdFromElementId(elementId);
+                if(preevalMap[itemId]) return false;
+            }
+
+            // All objects with the repeater as their parent, except the repeater itself.
+            var scriptId = _getScriptIdFromElementId(elementId);
+            return $ax.getParentRepeaterFromScriptId(scriptId) == repeaterId && scriptId != repeaterId;
+        });
+
+        return query;
+    }
 
     _repeaterManager.refreshAllRepeaters = function() {
         $ax('*').each(function(diagramObject, elementId) {
@@ -655,12 +671,15 @@ $axure.internal(function($ax) {
             var oldThis = eventInfo.thiswidget;
             var oldItem = eventInfo.item;
 
+            var idToWidgetInfo = {};
+
             outer:
             for(var i = 1; i <= data.length; i++) {
                 for(var j = 0; j < filters.length; j++) {
                     eventInfo.targetElement = _createElementId(repeaterId, i);
                     eventInfo.srcElement = filters[j].thisId;
-                    eventInfo.thiswidget = $ax.getWidgetInfo(eventInfo.srcElement);
+                    if(!idToWidgetInfo[eventInfo.srcElement]) idToWidgetInfo[eventInfo.srcElement] = $ax.getWidgetInfo(eventInfo.srcElement);
+                    eventInfo.thiswidget = idToWidgetInfo[eventInfo.srcElement];
                     eventInfo.item = $ax.getItemInfo(eventInfo.srcElement);
 
                     if($ax.expr.evaluateExpr(filters[j].filter, eventInfo) != 'true') continue outer;
@@ -1473,7 +1492,9 @@ $axure.internal(function($ax) {
         jObj.css('width', width + 'px');
 
         var panelLeft = percentPanelToLeftCache[elementId];
-        var stateChildrenQuery = jObj.children('.panel_state');
+        var stateParent = jObj;
+        while(stateParent.children()[0].id.indexOf($ax.visibility.CONTAINER_SUFFIX) != -1) stateParent = stateParent.children();
+        var stateChildrenQuery = stateParent.children('.panel_state');
         stateChildrenQuery.css('width', width + 'px');
 
         if(obj.fixedHorizontal == 'center')
@@ -1668,7 +1689,8 @@ $axure.internal(function($ax) {
             }
 
             // Ignore fixed
-            if(!childId || $ax.visibility.limboIds[childId] || !$ax.visibility.IsIdVisible(childId)) continue;
+            if(!childId || $ax.visibility.limboIds[childId] || !$ax.visibility.IsIdVisible(childId)
+                || $ax.public.fn.IsDynamicPanel(childObj.type) && childObj.fixedHorizontal) continue;
 
             var boundingRect = $ax.public.fn.getWidgetBoundingRect(childId);
             var position = { left: boundingRect.left, top: boundingRect.top };

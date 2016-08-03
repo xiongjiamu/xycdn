@@ -388,7 +388,8 @@ $axure.internal(function($ax) {
         links.style.left = left;
         $ax.visibility.SetVisible(links, true);
         $ax.legacy.BringToFront(linksId, true);
-        $ax.legacy.RefreshScreen();
+        // Switch to using jquery if this is still needed. Really old legacy code, likely for a browser no longer supported. 
+        //$ax.legacy.RefreshScreen();
     };
 
 
@@ -717,9 +718,8 @@ $axure.internal(function($ax) {
                         $ax.placeholderManager.updatePlaceholder(inputId, true);
                         $ax.placeholderManager.moveCaret(id, 0);
                     }
-                }).bind('focus', function() {
-                    $ax.placeholderManager.moveCaret(this.id);
-                    if (dObj.HideHintOnFocused) {
+                }).bind('focus', function () {
+                    if(dObj.HideHintOnFocused) {
                         var id = this.id;
                         var inputIndex = id.indexOf('_input');
                         if (inputIndex == -1) return;
@@ -728,7 +728,6 @@ $axure.internal(function($ax) {
                         if (!$ax.placeholderManager.isActive(inputId)) return;
                         $ax.placeholderManager.updatePlaceholder(inputId, false, true);
                     }
-                }).bind('mousedown', function() {
                     $ax.placeholderManager.moveCaret(this.id);
                 }).bind('mouseup', function() {
                     $ax.placeholderManager.moveCaret(this.id);
@@ -1415,7 +1414,9 @@ $axure.internal(function($ax) {
 
         // Make sure key events for page are initialized first. That way they will update the value of key pressed before any other events occur.
         _event.initKeyEvents($(window));
-        _initializeObjectEvents($ax('*'));
+
+        // Anything with an item id is in a repeater and should be handled by that repeater.
+        _initializeObjectEvents($ax(function(obj, elementId) { return !$ax.repeater.getItemIdFromElementId(elementId); }));
 
         //finally, process the pageload
         _pageLoad();
