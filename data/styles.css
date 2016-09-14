@@ -10,17 +10,6 @@
 .paragraph {
   text-align:left;
 }
-.text_area {
-  color:#000000;
-  text-align:left;
-}
-.droplist {
-  color:#000000;
-  text-align:left;
-}
-.radio_button {
-  text-align:left;
-}
 .line {
 }
 .heading_1 {
@@ -69,10 +58,10 @@
 .checkbox {
   text-align:left;
 }
-.radio_button1 {
+.radio_button {
   text-align:left;
 }
-.text_area1 {
+.text_area {
   color:#000000;
   text-align:left;
 }
@@ -80,7 +69,7 @@
   color:#000000;
   text-align:left;
 }
-.droplist1 {
+.droplist {
   color:#000000;
   text-align:left;
 }
@@ -92,8 +81,6 @@
 }
 .box_4 {
   color:#FFFFFF;
-}
-.ellipse {
 }
 .image {
   color:#000000;
@@ -108,7 +95,7 @@
 .paragraph1 {
   text-align:left;
 }
-.droplist2 {
+.droplist1 {
   color:#000000;
   text-align:left;
 }
